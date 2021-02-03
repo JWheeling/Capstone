@@ -1,0 +1,106 @@
+import numpy as np
+import cv2
+print('cv2 imported')
+
+############# Digit Training ###############################
+samples = np.loadtxt('generalsamples.data',np.float32)
+responses = np.loadtxt('generalresponses.data',np.float32)
+responses = responses.reshape((responses.size,1))
+
+model = cv2.ml.KNearest_create()
+model.train(samples,cv2.ml.ROW_SAMPLE,responses)
+#############################################################
+
+def empty(a):
+    pass
+
+############# Track bar setup ###############################
+cv2.namedWindow("Resultt")
+cv2.resizeWindow("Resultt",640,640)
+cv2.createTrackbar("Scale","Resultt",400,1000,empty)
+cv2.createTrackbar("Neig","Result",8,20,empty)
+cv2.createTrackbar("Min Area", "Resultt", 0,100000,empty)
+#############################################################
+
+############# Load Camera & Classifier ######################
+speedCascade = cv2.CascadeClassifier(r"C:\Users\ek950\Desktop\capstone\training4\classifier\cascade.xml")
+cap = cv2.VideoCapture(0) # For Webcam
+# Use cap.set() as needed
+#############################################################
+
+
+"""
+############ For PiCamera ###################################
+import picamera
+import io
+
+# memory stream so that photos don't need to be saved in a file
+stream = io.BytesIO() 
+
+# get a picture and specify parameters
+with picamera.PiCamera() as camera:
+    camera.resolution = (320,240)
+    camera.capture(stream, format = 'jpeg')
+    
+# Convert the picture into a numpy array    
+buff = np.frombuffer(stream.getvalue(), dtype=np.uint8)
+
+# Create an OpenCV image
+img = cv2.imdecode(buff,1)
+#############################################################
+"""
+
+counter = 0
+
+####################### MAIN ################################
+while True:
+    success, img = cap.read()
+
+    ##img = cv2.imread(r"C:\Users\ek950\Desktop\Training\p\6.jpg")
+    imgGray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+    
+    scaleVal = 1.01 + (cv2.getTrackbarPos("Scale","Resultt")/1000)
+    neig = cv2.getTrackbarPos("Neig","Resultt")
+    objects = speedCascade.detectMultiScale(img,scaleVal,neig)
+    
+    for (x,y,w,h) in objects:
+        area = w*h
+        minArea = cv2.getTrackbarPos("Min Area","Resultt")
+        if area > minArea:
+            cv2.rectangle(img,(x,y),(x+w,y+h),(255,0,0),2)
+            cv2.putText(img,"speed limit sign",(x,y-5),cv2.FONT_HERSHEY_COMPLEX_SMALL,1,(255,0,0),2)
+            speedSignCropped = img[int(np.floor((2*y+h+5)/2)):y+h-5,x+10:x+w-10]  
+            speedSignCroppedBigger = cv2.resize(speedSignCropped,(480,300))
+            cv2.imshow("Cropped", speedSignCroppedBigger)
+                     
+            out = np.zeros(speedSignCropped.shape,np.uint8)
+            gray = cv2.cvtColor(speedSignCropped,cv2.COLOR_BGR2GRAY)
+            thresh = cv2.adaptiveThreshold(gray,255,1,1,25,2)
+            contours,hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+
+            speedLimit = []
+
+            for  cnt in contours:
+                if cv2.contourArea(cnt)>50:
+                    [x,y,w,h] = cv2.boundingRect(cnt)
+                    if h>28:# and h/w<1.5 and h/w>0.5:
+                        cv2.rectangle(speedSignCropped,(x,y),(x+w,y+h),(0,255,0),2)
+                        roi = thresh[y:y+h,x:x+w]
+                        roismall = cv2.resize(roi,(10,10))
+                        roismall = roismall.reshape((1,100))
+                        roismall = np.float32(roismall)
+                        retval, results, neigh_resp, dists = model.findNearest(roismall, k = 1) 
+                        speedLimit = np.append(speedLimit,results[0][0])
+
+            if len(speedLimit) == 2:
+                counter=counter+1
+                if counter > 5: 
+                    detected = max(speedLimit)*10+min(speedLimit)
+                    if detected == 30 or detected == 50 or detected == 55 or detected == 65:
+                        print("The speed limit is", detected, "mph")
+                    counter=0;
+
+    cv2.imshow("Camera", img)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+#############################################################
