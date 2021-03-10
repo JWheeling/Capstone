@@ -7,7 +7,7 @@ int rightOnPin = 7;
 int leftOnPin = 8;
 
 //This pin is controlled externally and will indicate when the system needs to be set up
-int setupModeDetectPin = 9;
+int setupModeDetectPin = 10;
 
 /*Value used to determine the rate at which the blinker flashes
 This will be different on every car
@@ -20,7 +20,7 @@ int minFlashes = 1;
 
 //This is an experimental value that is yet to be determined
 //Needs to be a number greater than 0
-double errorFactor = .1;
+double errorFactor = .5;
 
 //This value is set by an interrupt so that the program knows when the car value needs to be set
 bool carValSetup = false;
@@ -28,6 +28,10 @@ bool carValSetup = false;
 //These variables are used to detect if the turn signal is currently on or was previously on
 bool rightOn;
 bool leftOn;
+
+//Allows for the clock divider fashion of quesrying the OBDII board
+int queryRate = 10;
+int queryRateCounter = 0;
 
 //This function outputs based on which sensor is being activated
 void turnOnBlindSpotCameras(){
@@ -75,23 +79,18 @@ void loop() {
   double sensorValue2 = analogRead(sensorPin2);
 
   //Query the OBD-II-UART for the Vehicle Speed
-  Serial.println("010D");
-  //Get the response from the OBD-II-UART board. We get two responses
-  //because the OBD-II-UART echoes the command that is sent.
-  //We want the data in the second response.
-
-  //Convert the string data to an integer
-  
-  //Prints values to the screen for testing
-  Serial.print("Sensor Value 1: ");
-  Serial.println(sensorValue1);
-  Serial.print("Sensor Value 2: ");
-  Serial.println(sensorValue2);
-  Serial.print("Ambient Value: ");
-  Serial.println(ambientValue);
-  
+  if(queryRateCounter < queryRate){
+  	queryRateCounter++;
+  }else{
+  	Serial.println("010D");
+  	queryRateCounter = 0;
+  }
+  	
+    
   //Detects if the system needs to be setup
-  if(digitalRead(setupModeDetectPin)){
+  if(digitalRead(setupModeDetectPin) == true){
+    Serial.println("Setting up");
+    Serial.println(digitalRead(setupModeDetectPin));
     carValueSet();
   }
 
@@ -105,7 +104,7 @@ void loop() {
   }
   
   //Detects if the left sensor is on
-  if(sensorValue2 > ambientValue*(1+errorFactor)){
+  if(sensorValue2 >	ambientValue*(1+errorFactor)){
     count++;
     leftOn = true;
     delay(carValue);
@@ -115,10 +114,6 @@ void loop() {
 
   //Does output accrding to the sensor values
   turnOnBlindSpotCameras();
-
-  //Prints count to the screen for testing purposes
-  Serial.print("Count: ");
-  Serial.println(count);
 
 }
 
