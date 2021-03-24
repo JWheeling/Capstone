@@ -3,6 +3,7 @@ import cv2
 import PIL.Image, PIL.ImageTk
 import time
 import numpy as np
+import RPi.GPIO as GPIO
 
 #Initialization
 
@@ -22,6 +23,11 @@ left_Camera_On = 0
 right_Camera_On = 2
 disp_camera = all_Cam_Off
 
+#Determines which GPIO to use for right and left detection
+GPIO.setMode(GPIO.BCM)
+right_Camera_GPIO = 2
+left_Camera_GPIO = 3
+
 def LCamOn():
     global disp_camera
     disp_camera = left_Camera_On
@@ -36,6 +42,17 @@ def RCamOn():
 
 def SoftHorn():
     print("Horn Fired")
+    
+def readPins():
+    global disp_camera
+    right_Camera_On = GPIO.input(right_Camera_GPIO)
+    left_Camera_On = GPIO.input(left_Camera_GPIO)
+    if(right_Camera_On == true):
+        disp_camera = right_Camera_On
+    elif(left_Camera_On == true):
+        disp_camera = left_Camera_On
+    else
+        disp_camera = 1
 
 class App:
       def __init__(self, window, window_title, video_source=0):
@@ -66,6 +83,8 @@ class App:
          self.window.mainloop()
 
       def update(self):
+             #Read GPIO here and set disp_camera
+             readPins()
              # Get a frame from the video source
              if disp_camera==left_Camera_On:
                  ret, frame = capleft.read()

@@ -6,6 +6,10 @@ int sensorPin2 = A3;
 int rightOnPin = 7;
 int leftOnPin = 8;
 
+//Used for testing
+int testPin = 12;
+bool currentVal = false;
+
 //This pin is controlled externally and will indicate when the system needs to be set up
 int setupModeDetectPin = 10;
 
@@ -30,7 +34,8 @@ bool rightOn;
 bool leftOn;
 
 //Allows for the clock divider fashion of quesrying the OBDII board
-int queryRate = 10;
+//1500 querys the board every .9048 Hz or 1.105 seconds
+int queryRate = 1500;
 int queryRateCounter = 0;
 
 //This function outputs based on which sensor is being activated
@@ -59,6 +64,9 @@ void setup() {
   pinMode(setupModeDetectPin, INPUT);
   pinMode(rightOnPin, OUTPUT);
   pinMode(leftOnPin, OUTPUT);
+  
+  //Used to test
+  pinMode(testPin, OUTPUT);
 
   //Sets initial values for the detection
   rightOn = false;
@@ -89,8 +97,6 @@ void loop() {
     
   //Detects if the system needs to be setup
   if(digitalRead(setupModeDetectPin) == true){
-    Serial.println("Setting up");
-    Serial.println(digitalRead(setupModeDetectPin));
     carValueSet();
   }
 
