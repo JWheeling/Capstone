@@ -10,17 +10,15 @@ int leftOnPin = 8;
 int testPin = 12;
 bool currentVal = false;
 
-//This pin is controlled externally and will indicate when the system needs to be set up
-int setupModeDetectPin = 10;
+//Sets up reset time before the camera turns back off
+int blinkRate = 1200;
+int blinkRateCounter = 0;
 
-/*Value used to determine the rate at which the blinker flashes
-This will be different on every car
-Will need to be figured out by a seperate program */
-int carValue = 0;
-
-//Used to fine tune how many flashes are needed before we turn on camera
+//Allows for error detection in light on logic
+//minFlashes is not the actual number of flashes before it turns on
+//minFlashes is the minimum on time
+int minFlashes = 100;
 int count = 0;
-int minFlashes = 1;
 
 //This is an experimental value that is yet to be determined
 //Needs to be a number greater than 0
@@ -61,12 +59,8 @@ void setup() {
   pinMode(ambientPin, INPUT);
   pinMode(sensorPin1, INPUT);
   pinMode(sensorPin1, INPUT);
-  pinMode(setupModeDetectPin, INPUT);
   pinMode(rightOnPin, OUTPUT);
   pinMode(leftOnPin, OUTPUT);
-  
-  //Used to test
-  pinMode(testPin, OUTPUT);
 
   //Sets initial values for the detection
   rightOn = false;
@@ -93,46 +87,26 @@ void loop() {
   	Serial.println("010D");
   	queryRateCounter = 0;
   }
-  	
-    
-  //Detects if the system needs to be setup
-  if(digitalRead(setupModeDetectPin) == true){
-    carValueSet();
+  
+  if(blinkRateCounter < blinkRate && (rightOn || leftOn)){
+	  blinkRate++;
+  }else{
+	  blinkRateCounter = 0;
   }
 
   //Detects if the right sensor is on
   if(sensorValue1 > ambientValue*(1+errorFactor)){
-    count++;
     rightOn = true;
-    delay(carValue);
-  }else{
-    rightOn = false;
+	count++;
   }
   
   //Detects if the left sensor is on
   if(sensorValue2 >	ambientValue*(1+errorFactor)){
-    count++;
     leftOn = true;
-    delay(carValue);
-  }else{
-    leftOn = false;
+	count++;
   }
 
   //Does output accrding to the sensor values
   turnOnBlindSpotCameras();
 
-}
-
-void carValueSet(){
-
-  while(digitalRead(setupModeDetectPin)){
-    
-    double startTime = millis();
-    while(true){
-      
-    }
-    double endTime = millis();
-    carValue = endTime - startTime;
-    
-  }
 }
