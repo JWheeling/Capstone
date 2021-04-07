@@ -4,6 +4,11 @@ import PIL.Image, PIL.ImageTk
 import time
 import numpy as np
 import RPi.GPIO as GPIO
+import mpv
+from os import fork
+from collections import deque
+import serial
+from time import sleep
 
 #Initialization
 
@@ -17,11 +22,16 @@ capright.set(3,200)
 capright.set(4,200)
 capright.set(cv2.CAP_PROP_FPS, 60)
 
-speed = 65
+speed = deque(maxlen=1) #thread safe
 all_Cam_Off = 1
 left_Camera_On = 0
 right_Camera_On = 2
 disp_camera = all_Cam_Off
+
+player=mpv.MPV()
+player.audio_channels=1
+
+serial_com = serial.Serial('/dev/ttyACM0') #9600 8N1
 
 #Determines which GPIO to use for right and left detection
 GPIO.setMode(GPIO.BCM)
@@ -42,6 +52,7 @@ def RCamOn():
 
 def SoftHorn():
     print("Horn Fired")
+    player.play('/home/pi/car_horn.ogg')
     
 def readPins():
     global disp_camera
@@ -53,6 +64,17 @@ def readPins():
         disp_camera = left_Camera_On
     else
         disp_camera = 1
+
+def serialIn():
+    global speed
+    while True:
+        line = serial_com.readline() #echo of command sent to obdii board
+        line = line.strip() #strip potential CRLF characters
+        if line == "010D" #double check that next data is for correct command
+            line = serial_com.readline() #the actual data we want
+            speed.append(round(int(line.strip())/1.6)) #strip line of CRLF, interpret as int, convert kmh to mph, then round to nearest whole number and store in speed deque
+        else
+            sleep 0.5 #wait a short time before trying again, on the off chance that first readline is actually reading between the echo and the data
 
 class App:
       def __init__(self, window, window_title, video_source=0):
@@ -83,6 +105,7 @@ class App:
          self.window.mainloop()
 
       def update(self):
+             global speed
              #Read GPIO here and set disp_camera
              readPins()
              # Get a frame from the video source
@@ -101,6 +124,12 @@ class App:
              self.photo = PIL.ImageTk.PhotoImage(image = PIL.Image.fromarray(frame))
              self.canvas.create_image(0, 0, image = self.photo, anchor = tkinter.NW)
              self.window.after(15, self.update)
+
+            try:
+                speed.pop() #how to read current speed
+                #display current speed here
+            except IndexError:
+                pass #deque is empty, skip until there's new data
 
 """
 class MyVideoCapture:
@@ -124,8 +153,14 @@ class MyVideoCapture:
              self.vid1.release()
 """
 
+# "main" function
+def init():
+    pid = fork()
+    if pid #parent
+        # Create a window and pass it to the Application object
+        App(tkinter.Tk(), "Main")
+        print(disp_camera)
+    else #child
+        serialIn()
 
- # Create a window and pass it to the Application object
-
-App(tkinter.Tk(), "Main")
-print(disp_camera)
+init()
