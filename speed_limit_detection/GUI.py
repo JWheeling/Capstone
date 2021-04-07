@@ -31,10 +31,10 @@ disp_camera = all_Cam_Off
 player=mpv.MPV()
 player.audio_channels=1
 
-serial_com = serial.Serial('/dev/ttyACM0') #9600 8N1
+serial_com = serial.Serial('/dev/ttyAMA0') #9600 8N1
 
 #Determines which GPIO to use for right and left detection
-GPIO.setMode(GPIO.BCM)
+GPIO.setmode(GPIO.BCM)
 right_Camera_GPIO = 2
 left_Camera_GPIO = 3
 
@@ -62,7 +62,7 @@ def readPins():
         disp_camera = right_Camera_On
     elif(left_Camera_On == true):
         disp_camera = left_Camera_On
-    else
+    else:
         disp_camera = 1
 
 def serialIn():
@@ -70,11 +70,11 @@ def serialIn():
     while True:
         line = serial_com.readline() #echo of command sent to obdii board
         line = line.strip() #strip potential CRLF characters
-        if line == "010D" #double check that next data is for correct command
+        if line == "010D": #double check that next data is for correct command
             line = serial_com.readline() #the actual data we want
             speed.append(round(int(line.strip())/1.6)) #strip line of CRLF, interpret as int, convert kmh to mph, then round to nearest whole number and store in speed deque
-        else
-            sleep 0.5 #wait a short time before trying again, on the off chance that first readline is actually reading between the echo and the data
+        else:
+            sleep(0.5) #wait a short time before trying again, on the off chance that first readline is actually reading between the echo and the data
 
 class App:
       def __init__(self, window, window_title, video_source=0):
@@ -119,17 +119,17 @@ class App:
                  frame = cv2.resize(frame,(800,480))
              elif disp_camera==1:
                  #frame = np.full((480,800),240)
-                frame = cv2.imread("SL30_resized.png")
+                 frame = cv2.imread("SL30_resized.png")
 
              self.photo = PIL.ImageTk.PhotoImage(image = PIL.Image.fromarray(frame))
              self.canvas.create_image(0, 0, image = self.photo, anchor = tkinter.NW)
              self.window.after(15, self.update)
 
-            try:
-                speed.pop() #how to read current speed
-                #display current speed here
-            except IndexError:
-                pass #deque is empty, skip until there's new data
+             try:
+                 speed.pop() #how to read current speed
+                 #display current speed here
+             except IndexError:
+                 pass #deque is empty, skip until there's new data
 
 """
 class MyVideoCapture:
@@ -156,11 +156,11 @@ class MyVideoCapture:
 # "main" function
 def init():
     pid = fork()
-    if pid #parent
+    if pid: #parent
         # Create a window and pass it to the Application object
         App(tkinter.Tk(), "Main")
         print(disp_camera)
-    else #child
+    else: #child
         serialIn()
 
 init()
