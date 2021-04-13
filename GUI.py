@@ -5,6 +5,7 @@ import time
 import numpy as np
 import RPi.GPIO as GPIO
 import mpv
+import sys
 from os import fork
 from collections import deque
 import serial
@@ -22,10 +23,11 @@ left_Camera_On = 0
 right_Camera_On = 2
 disp_camera = all_Cam_Off
 
-player=mpv.MPV()
+player=mpv.MPV(start_event_thread=False)
 player.audio_channels=1
 
-serial_com = serial.Serial('/dev/ttyAMA0') #9600 8N1
+serial_com = serial.Serial('/dev/ttyAMA0', 9600, timeout=4, parity=serial.PARITY_NONE,
+                           stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS) #9600 8N1
 
 #Determines which GPIO to use for right and left detection
 GPIO.setwarnings(False)
@@ -60,17 +62,35 @@ def readPins():
     else:
         CamOff()
 
+def ser_read():
+    data = ""
+    buf = ""
+    while(buf != '\n'): #DEBUG needs to be '\r' for the actual OBD converter
+        data += buf
+        try:
+            buf = serial_com.read().decode('UTF-8')
+        except:
+            break
+    return data
+
 def serialIn():
     global speed
+    global serial_com
     while True:
-        line = serial_com.readline() #echo of command sent to obdii board
-        line = line.strip() #strip potential CRLF characters
-        if line == "010D": #double check that next data is for correct command
-            line = serial_com.readline() #the actual data we want
-            speed.append(round(int(line.strip())/1.6)) #strip line of CRLF, interpret as int, convert kmh to mph, then round to nearest whole number and store in speed deque
+        if(serial_com.is_open == False):
+            print("Serial Thread Closed")
+            quit()
+        echo = ser_read()
+        if(echo == "010D"): #double check that next data is for correct command
+            data = ser_read()
+            try:
+                speed.append(round(int(data)/1.6)) #strip line of CRLF, interpret as int, convert kmh to mph, then round to nearest whole number and store in speed deque
+            except ValueError:
+                print("ValueError exception")
+                pass #tried to convert 010D instead of actual data
         else:
-            sleep(0.5) #wait a short time before trying again, on the off chance that first readline is actually reading between the echo and the data
-
+            pass #just started or off by one
+        
 class App:
     def __init__(self, window, window_title, video_source=0):
         self.window = window
@@ -106,6 +126,14 @@ class App:
         global cur_speed
         #Read GPIO here and set disp_camera
         readPins()
+        
+        #check if a new value for speed is available
+        try:
+            cur_speed = speed.pop()
+            print("current speed " + cur_speed)
+        except IndexError:
+            pass #deque is empty, skip until there's new data
+        
         # Get a frame from the video source
         if disp_camera==left_Camera_On:
             ret, frame = capleft.read()
@@ -117,10 +145,6 @@ class App:
             frame = cv2.resize(frame,(800,480))
         elif disp_camera==all_Cam_Off:
             frame = np.full((480,800),240)
-            try:
-                cur_speed = speed.pop() #check if a new value for speed is available
-            except IndexError:
-                pass #deque is empty, skip until there's new data
             frame = cv2.putText(frame,str(cur_speed),(50,50),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,0),4)
             #frame = cv2.imread("SL30_resized.png")
 
@@ -128,32 +152,14 @@ class App:
         self.canvas.create_image(0, 0, image = self.photo, anchor = tkinter.NW)
         self.window.after(60, self.update)
 
-"""
-class MyVideoCapture:
-     def __init__(self, video_source=0):
-         # Open the video source
-         self.vid1 = cv2.VideoCapture(1)
-         self.vid1.set(3,800)
-         self.vid1.set(4,480)
 
-     def get_frame(self):
-         if disp_camera==0:
-             ret, frame = self.vid1.read()
-             return (ret, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-         elif disp_camera==1:
-             return(True,np.zeros((480,800)))
-
-
-     # Release the video source when the object is destroyed
-     def __del__(self):
-         if self.vid1.isOpened():
-             self.vid1.release()
-"""
 
 # "main" function
 def init():
     global capleft
     global capright
+    global serial_com
+    
     pid = fork()
     if pid: #parent
         
@@ -180,6 +186,7 @@ def init():
         root.destroy() #exit the application
         capleft.release() #cleanly release the cameras
         capright.release()
+        serial_com.close()
         print("Done") 
     else: #child
         serialIn()
