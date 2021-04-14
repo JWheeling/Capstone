@@ -6,23 +6,23 @@ import numpy as np
 import RPi.GPIO as GPIO
 import mpv
 import sys
-from os import fork
-from collections import deque
+import os
 import serial
 from time import sleep
+import picamera
+import io
 
 #Initialization
 
+#webcam/blindspot
 capleft = ""
 capright = ""
-
-cur_speed = 0
-speed = deque(maxlen=1) #thread safe
 all_Cam_Off = 1
 left_Camera_On = 0
 right_Camera_On = 2
 disp_camera = all_Cam_Off
 
+#mpv for soft horn
 player=mpv.MPV(start_event_thread=False)
 player.audio_channels=1
 
@@ -74,8 +74,8 @@ def ser_read():
     return data
 
 def serialIn():
-    global speed
     global serial_com
+    global cur_speed
     while True:
         if(serial_com.is_open == False):
             print("Serial Thread Closed")
@@ -83,14 +83,74 @@ def serialIn():
         echo = ser_read()
         if(echo == "010D"): #double check that next data is for correct command
             data = ser_read()
-            try:
-                speed.append(round(int(data)/1.6)) #strip line of CRLF, interpret as int, convert kmh to mph, then round to nearest whole number and store in speed deque
-            except ValueError:
-                print("ValueError exception")
-                pass #tried to convert 010D instead of actual data
+            cur_speed = round(int(data)/1.6)
+            file = open('/tmp/cur_speed.txt', 'w')
+            file.write(str(cur_speed) + " MPH")
+            file.close()
+            print(cur_speed)
         else:
             pass #just started or off by one
-        
+
+def speedlimit():
+    #initialize
+    samples = np.loadtxt(r'/home/pi/Desktop/Documents/Capstone-local/generalsamples.data',np.float32)
+    responses = np.loadtxt(r'/home/pi/Desktop/Documents/Capstone-local/generalresponses.data',np.float32)
+    responses = responses.reshape((responses.size,1))
+    model = cv2.ml.KNearest_create()
+    model.train(samples,cv2.ml.ROW_SAMPLE,responses)
+    speedCascade = cv2.CascadeClassifier(r"/home/pi/Desktop/Documents/Capstone-local/Classifier/haar/speedLimitStage17.xml")
+    stream = io.BytesIO()
+    camera = picamera.PiCamera()
+    camera.framerate = 60
+    camera.resolution = (800,480)
+    camera.awb_mode = 'auto'
+    counter = 0
+    scaleVal = 1.2
+    neig = 0
+    #main loop
+    while True:
+        # get a picture and specify parameters
+        camera.capture(stream, format = 'jpeg')
+        # Convert the picture into a numpy array    
+        buff = np.frombuffer(stream.getvalue(), dtype=np.uint8)
+        stream.seek(0)
+        # Create an OpenCV image
+        img = cv2.imdecode(buff,1)
+        imgGray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY) #Convert to greyscale 
+    
+        objects = speedCascade.detectMultiScale(img,scaleVal,neig) #run object detection algorithm
+        for (x,y,w,h) in objects:
+            cv2.rectangle(img,(x,y),(x+w,y+h),(255,0,0),2)
+            speedSignCropped = img[int(np.floor((2*y+h)/2)):int(np.floor((2*y+h)/2+y+h-((2*y+h)/2))),int(np.floor(x+w*0.15)):int(np.floor(x+w*0.95))]
+            gray = cv2.cvtColor(speedSignCropped,cv2.COLOR_BGR2GRAY)
+            thresh = cv2.adaptiveThreshold(gray,255,1,1,25,2)
+            temp_name,contours,hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+    
+            speedLimitArray = []
+            for  cnt in contours:
+                if cv2.contourArea(cnt)>1:
+                    [x,y,w,h] = cv2.boundingRect(cnt)
+                    if h>15 and not(h/w>1.5) and (h/w>1):
+                        cv2.rectangle(speedSignCropped,(x,y),(x+w,y+h),(0,255,0),2)
+                        roi = thresh[y:y+h,x:x+w]
+                        roismall = cv2.resize(roi,(10,10))
+                        roismall = roismall.reshape((1,100))
+                        roismall = np.float32(roismall)
+                        retval, results, neigh_resp, dists = model.findNearest(roismall, k = 1) 
+                        speedLimitArray = np.append(speedLimitArray,results[0][0])
+
+                if len(speedLimitArray) == 2:
+                    counter = counter+1
+                if counter > 1:
+                    detected = max(speedLimitArray)*10+min(speedLimitArray)
+                    if detected == 20 or detected == 30 or detected == 40 or detected == 50 or detected == 55 or \
+                        detected == 60 or detected == 65 or detected == 70 or detected == 75 or detected == 80:
+                        speedLimit = int(detected) 
+                        file = open('/tmp/speedLimit.txt', 'w')
+                        file.write(str(speedLimit) + " MPH")
+                        file.close()
+                    counter = 0;
+
 class App:
     def __init__(self, window, window_title, video_source=0):
         self.window = window
@@ -98,8 +158,6 @@ class App:
         self.window.configure(background="white")
         self.window.attributes('-fullscreen',True)
         self.video_source = video_source
-        # open video source (by default this will try to open the computer webcam)
-        #self.vid = MyVideoCapture(self.video_source)
 
         # Create a canvas that can fit the above video source size
         self.canvas = tkinter.Canvas(window, width = 800, height = 450)
@@ -107,32 +165,18 @@ class App:
 
         softHorn = tkinter.Button(window, text="Soft Horn", width=27, command=SoftHorn, fg='white', bg='black')
         softHorn.pack(side=tkinter.LEFT, expand=True)
-        #LcamOn = tkinter.Button(window, text="CAM L On", width=27, height = 1, command=LCamOn, fg='white', bg='black')
-        #LcamOn.pack(side=tkinter.LEFT, expand=True)
-        #RcamOn = tkinter.Button(window, text="CAM R On", width=27, command=RCamOn, fg='white', bg='black')
-        #RcamOn.pack(side=tkinter.RIGHT, expand=True)
-        #camOff = tkinter.Button(window, text="CAM Off", width=27, command=CamOff, fg='white', bg='black')
-        #camOff.pack(side=tkinter.RIGHT, expand=True)
-
+        
         # After it is called once, the update method will be automatically called every delay milliseconds
         try:
             self.update()
             self.window.mainloop()
         except KeyboardInterrupt: #don't get stuck on keyboard interrupt
             pass
-
+        
     def update(self):
-        global speed
         global cur_speed
         #Read GPIO here and set disp_camera
         readPins()
-        
-        #check if a new value for speed is available
-        try:
-            cur_speed = speed.pop()
-            print("current speed " + cur_speed)
-        except IndexError:
-            pass #deque is empty, skip until there's new data
         
         # Get a frame from the video source
         if disp_camera==left_Camera_On:
@@ -144,15 +188,21 @@ class App:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame = cv2.resize(frame,(800,480))
         elif disp_camera==all_Cam_Off:
+            file = open('/tmp/cur_speed.txt', 'r')
+            cur_speed = file.read()
+            file.close()
+            file = open('/tmp/speedLimit.txt', 'r')
+            speedLimit = file.read()
+            file.close()
             frame = np.full((480,800),240)
-            frame = cv2.putText(frame,str(cur_speed),(50,50),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,0),4)
-            #frame = cv2.imread("SL30_resized.png")
+            frame = cv2.putText(frame,"Vehicle Speed",(150,180),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,0),4)
+            frame = cv2.putText(frame,"Speed Limit",(450,180),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,0),4)
+            frame = cv2.putText(frame,cur_speed,(150,300),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,0),4)
+            frame = cv2.putText(frame,speedLimit,(450,300),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,0),4)
 
         self.photo = PIL.ImageTk.PhotoImage(image = PIL.Image.fromarray(frame))
         self.canvas.create_image(0, 0, image = self.photo, anchor = tkinter.NW)
         self.window.after(60, self.update)
-
-
 
 # "main" function
 def init():
@@ -160,7 +210,14 @@ def init():
     global capright
     global serial_com
     
-    pid = fork()
+    file = open('/tmp/cur_speed.txt', 'w')
+    file.write("0 MPH")
+    file.close()
+    file = open('/tmp/speedLimit.txt', 'w')
+    file.write("Undetected")
+    file.close()
+    
+    pid = os.fork()
     if pid: #parent
         
         capleft = cv2.VideoCapture(1)
@@ -187,8 +244,13 @@ def init():
         capleft.release() #cleanly release the cameras
         capright.release()
         serial_com.close()
+        cur_speed.close()
         print("Done") 
     else: #child
-        serialIn()
+        pid = os.fork() #fork again and run both threads
+        if pid:
+            serialIn()
+        else:
+            speedlimit()
 
 init()
