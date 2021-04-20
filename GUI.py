@@ -65,10 +65,14 @@ def readPins():
 def ser_read():
     data = ""
     buf = ""
-    while(buf != '\n'): #DEBUG needs to be '\r' for the actual OBD converter
+    while(buf != '\r'):
         data += buf
         try:
-            buf = serial_com.read().decode('UTF-8')
+            tmp = serial_com.read().decode('UTF-8')
+            if(tmp == '>'): #ignore '>' characters
+                buf = ""
+            else:
+                buf = tmp
         except:
             break
     return data
@@ -83,6 +87,11 @@ def serialIn():
         echo = ser_read()
         if(echo == "010D"): #double check that next data is for correct command
             data = ser_read()
+            try:
+                data = data[-2:] #get last two characters
+                data = int(data[-2], 16)*16 + int(data[-1], 16) #convert hex ascii to int
+            except:
+                data = 0 #default to 0 on failure
             cur_speed = round(int(data)/1.6)
             file = open('/tmp/cur_speed.txt', 'w')
             file.write(str(cur_speed) + " MPH")
