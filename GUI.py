@@ -69,7 +69,7 @@ def ser_read():
         data += buf
         try:
             tmp = serial_com.read().decode('UTF-8')
-            if(tmp == '>'): #ignore '>' characters
+            if(tmp == '>' or tmp == ' ' or tmp == '\n'): #ignore '>' characters
                 buf = ""
             else:
                 buf = tmp
@@ -85,13 +85,19 @@ def serialIn():
             print("Serial Thread Closed")
             quit()
         echo = ser_read()
+        print("\nEcho: ")
+        print(echo)
         if(echo == "010D"): #double check that next data is for correct command
             data = ser_read()
-            try:
-                data = data[-2:] #get last two characters
-                data = int(data[-2], 16)*16 + int(data[-1], 16) #convert hex ascii to int
-            except:
-                data = 0 #default to 0 on failure
+            print("\nData: ")
+            print(data)
+            #try:
+            data = data[-2:] #get last two characters
+            data = int(data[-2], 16)*16 + int(data[-1], 16) #convert hex ascii to int
+            #except:
+            #   data = 0 #default to 0 on failure
+            print(data)
+            
             cur_speed = round(int(data)/1.6)
             file = open('/tmp/cur_speed.txt', 'w')
             file.write(str(cur_speed) + " MPH")
