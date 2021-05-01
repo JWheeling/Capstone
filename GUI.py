@@ -69,7 +69,7 @@ def ser_read():
         data += buf
         try:
             tmp = serial_com.read().decode('UTF-8')
-            if(tmp == '>'): #ignore '>' characters
+            if(tmp == '>' or tmp == ' ' or tmp == '\n'): #ignore '>' characters
                 buf = ""
             else:
                 buf = tmp
@@ -85,13 +85,19 @@ def serialIn():
             print("Serial Thread Closed")
             quit()
         echo = ser_read()
+        print("\nEcho: ")
+        print(echo)
         if(echo == "010D"): #double check that next data is for correct command
             data = ser_read()
-            try:
-                data = data[-2:] #get last two characters
-                data = int(data[-2], 16)*16 + int(data[-1], 16) #convert hex ascii to int
-            except:
-                data = 0 #default to 0 on failure
+            print("\nData: ")
+            print(data)
+            #try:
+            data = data[-2:] #get last two characters
+            data = int(data[-2], 16)*16 + int(data[-1], 16) #convert hex ascii to int
+            #except:
+            #   data = 0 #default to 0 on failure
+            print(data)
+            
             cur_speed = round(int(data)/1.6)
             file = open('/tmp/cur_speed.txt', 'w')
             file.write(str(cur_speed) + " MPH")
@@ -101,12 +107,14 @@ def serialIn():
             pass #just started or off by one
 
 def speedlimit():
-    #initialize
+    # samples and responses include training data for number recognition
     samples = np.loadtxt(r'/home/pi/Desktop/Documents/Capstone-local/generalsamples.data',np.float32)
     responses = np.loadtxt(r'/home/pi/Desktop/Documents/Capstone-local/generalresponses.data',np.float32)
     responses = responses.reshape((responses.size,1))
+    # train the classifier for number recognition - K-nearest neighbors model
     model = cv2.ml.KNearest_create()
     model.train(samples,cv2.ml.ROW_SAMPLE,responses)
+    # load the pre-trained Haar Cascade classifier for speed limit detection
     speedCascade = cv2.CascadeClassifier(r"/home/pi/Desktop/Documents/Capstone-local/Classifier/haar/speedLimitStage17.xml")
     stream = io.BytesIO()
     camera = picamera.PiCamera()
@@ -114,10 +122,12 @@ def speedlimit():
     camera.resolution = (800,480)
     camera.awb_mode = 'auto'
     counter = 0
+    # scaleVal and neig are parameters for speed limit sign detection
     scaleVal = 1.2
     neig = 0
     #main loop
     while True:
+        # the following block of code is needed to convert the image format used by the PiCamera library to the format required by the OpenCV library
         # get a picture and specify parameters
         camera.capture(stream, format = 'jpeg')
         # Convert the picture into a numpy array    
@@ -125,39 +135,48 @@ def speedlimit():
         stream.seek(0)
         # Create an OpenCV image
         img = cv2.imdecode(buff,1)
-        imgGray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY) #Convert to greyscale 
+        # Convert to greyscale 
+        imgGray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
     
-        objects = speedCascade.detectMultiScale(img,scaleVal,neig) #run object detection algorithm
+        # run object detection algorithm
+        objects = speedCascade.detectMultiScale(img,scaleVal,neig) 
         for (x,y,w,h) in objects:
-            cv2.rectangle(img,(x,y),(x+w,y+h),(255,0,0),2)
+            # crop the image to get rid of the backround and leave only the number portion of the speedlimit sign
             speedSignCropped = img[int(np.floor((2*y+h)/2)):int(np.floor((2*y+h)/2+y+h-((2*y+h)/2))),int(np.floor(x+w*0.15)):int(np.floor(x+w*0.95))]
-            gray = cv2.cvtColor(speedSignCropped,cv2.COLOR_BGR2GRAY)
-            thresh = cv2.adaptiveThreshold(gray,255,1,1,25,2)
+            # adaptive thresholding to clean up the image
+            thresh = cv2.adaptiveThreshold(speedSignCropped,255,1,1,25,2)
+            #Find contours within the cropped image
             temp_name,contours,hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     
+            # detected digits will be stored in this array
             speedLimitArray = []
+            # For each detected contour, run the digit recognition algorithm to extract the number
             for  cnt in contours:
-                if cv2.contourArea(cnt)>1:
-                    [x,y,w,h] = cv2.boundingRect(cnt)
+                # ignore contours that are too small to be a digit, contours of area less then 10 is most likely to be just a noise
+                if cv2.contourArea(cnt)>10:
+                    # dimwension of numbers on a speed limit sign have a certain ratio. If the detected contour is outside of this ratio, reject it. 
                     if h>15 and not(h/w>1.5) and (h/w>1):
                         cv2.rectangle(speedSignCropped,(x,y),(x+w,y+h),(0,255,0),2)
+                        # specify the region of interest to which the digit recognition algorithm will be applied
                         roi = thresh[y:y+h,x:x+w]
                         roismall = cv2.resize(roi,(10,10))
                         roismall = roismall.reshape((1,100))
                         roismall = np.float32(roismall)
+                        # perform digit recognition
                         retval, results, neigh_resp, dists = model.findNearest(roismall, k = 1) 
+                        # store the number in the array 
                         speedLimitArray = np.append(speedLimitArray,results[0][0])
 
+                # if more than two digits are detected, it must be an error. 
                 if len(speedLimitArray) == 2:
                     counter = counter+1
-                if counter > 1:
+                # return the speed limit only if the same speed limit has been detected three consecutive times
+                if counter > 2:
                     detected = max(speedLimitArray)*10+min(speedLimitArray)
-                    if detected == 20 or detected == 30 or detected == 40 or detected == 50 or detected == 55 or \
-                        detected == 60 or detected == 65 or detected == 70 or detected == 75 or detected == 80:
-                        speedLimit = int(detected) 
-                        file = open('/tmp/speedLimit.txt', 'w')
-                        file.write(str(speedLimit) + " MPH")
-                        file.close()
+                    speedLimit = int(detected) 
+                    file = open('/tmp/speedLimit.txt', 'w')
+                    file.write(str(speedLimit) + " MPH")
+                    file.close()
                     counter = 0;
 
 class App:
