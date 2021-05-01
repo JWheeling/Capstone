@@ -22,7 +22,7 @@ int count = 0;
 
 //This is an experimental value that is yet to be determined
 //Needs to be a number greater than 0
-double errorFactor = .5;
+double errorFactor = 1.5;
 
 //This value is set by an interrupt so that the program knows when the car value needs to be set
 bool carValSetup = false;
@@ -33,24 +33,24 @@ bool leftOn;
 
 //Allows for the clock divider fashion of quesrying the OBDII board
 //1500 querys the board every .9048 Hz or 1.105 seconds
-int queryRate = 1500;
+int queryRate = 2500;
 int queryRateCounter = 0;
 
 //This function outputs based on which sensor is being activated
 void turnOnBlindSpotCameras(){
   
   //Does logic for the right sensor
-  if(rightOn && count >= minFlashes){
-    digitalWrite(rightOnPin, HIGH);
-  }else{
+  if(rightOn && (count >= minFlashes)){
     digitalWrite(rightOnPin, LOW);
+  }else{
+    digitalWrite(rightOnPin, HIGH);
   }
 
   //Does logic for the left sensor
-  if(leftOn && count >= minFlashes){
-    digitalWrite(leftOnPin, HIGH);
-  }else{
+  if(leftOn && (count >= minFlashes)){
     digitalWrite(leftOnPin, LOW);
+  }else{
+    digitalWrite(leftOnPin, HIGH);
   }
 }
 
@@ -63,8 +63,8 @@ void setup() {
   pinMode(leftOnPin, OUTPUT);
 
   //Sets initial values for the detection
-  rightOn = false;
-  leftOn = false;
+  rightOn = true;
+  leftOn = true;
 
   //Used to setup the serial monitor for testing
   Serial.begin(9600);
